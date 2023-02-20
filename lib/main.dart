@@ -7,7 +7,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_settings/open_settings.dart';
-import 'package:siemens_wifi_app/WifiConnect.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
@@ -44,7 +44,6 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
-  int _counter = 0;
   String? connectedSSID = '';
   bool _switchValue = false;
   bool connected = false;
@@ -53,14 +52,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   final Connectivity _connectivity = Connectivity();
   late StreamSubscription<ConnectivityResult> _connectivitySubscription;
 
+  List<WiFiAccessPoint> accessPoints = [];
+  StreamSubscription<List<WiFiAccessPoint>>? subscription;
+  bool loading = false;
+  String _errText = '';
+  bool iosWifiConnected = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     checkIfWiFiEnabled();
-
     initConnectivity();
-
     _connectivitySubscription =
         _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
   }
@@ -72,28 +75,20 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Platform messages are asynchronous, so we initialize in an async method.
   Future<void> initConnectivity() async {
     late ConnectivityResult result;
-    // Platform messages may fail, so we use a try/catch PlatformException.
     try {
       result = await _connectivity.checkConnectivity();
     } on PlatformException catch (e) {
       print('Couldn\'t check connectivity status == ${e}');
       return;
     }
-
-    // If the widget was removed from the tree while the asynchronous platform
-    // message was in flight, we want to discard the reply rather than calling
-    // setState to update our non-existent appearance.
     if (!mounted) {
       return Future.value(null);
     }
-
     return _updateConnectionStatus(result);
   }
 
-  bool iosWifiConnected = false;
   Future<void> _updateConnectionStatus(ConnectivityResult result) async {
     setState(() {
       _connectionStatus = result;
@@ -136,8 +131,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                   await WiFiForIoTPlugin.setEnabled(true,
                       shouldOpenSettings: true);
                 } else {
-                  // AppSettings.openWIFISettings();
-                  OpenSettings.openWIFISetting();
+                  AppSettings.openDeviceSettings(
+                    asAnotherTask: true,
+                  );
+                  // OpenSettings.openWIFISetting();
+                  // bool res =
+                  //     await launchUrl(_url, mode: LaunchMode.platformDefault);
+                  // print(res);
                 }
               },
             ),
@@ -167,17 +167,18 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       'https://i.pinimg.com/564x/d7/c9/51/d7c951b1dc5bc980942508e3f9328923.jpg',
                       height: 100,
                       errorBuilder: (context, error, stackTrace) {
-                        return Container(child: Text("No internet..!!!🙁"));
+                        return Container(
+                            child: const Text("No internet..!!!🙁"));
                       },
                     )
-                  : Text("No internet..!!🙁"),
+                  : const Text("No internet..!!🙁"),
             ))
       ]),
       floatingActionButton: FloatingActionButton(
           onPressed: () {
             _startListeningToScannedResults();
           },
-          child: Text("Scan")),
+          child: const Text("Scan")),
     );
   }
 
@@ -255,6 +256,8 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
     }
   }
 
+  final passwordController = TextEditingController();
+
 //Popup to enter password for selected network
   String selectedSSID = '';
   String password = '';
@@ -277,9 +280,7 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                       const Text("Enter Password"),
                       const Divider(thickness: 1),
                       TextField(
-                        onChanged: (value) {
-                          password = value;
-                        },
+                        controller: passwordController,
                         autofocus: true,
                         decoration: InputDecoration(
                             helperText: 'Enter Password',
@@ -291,7 +292,10 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           ElevatedButton(
-                              onPressed: () => {Navigator.pop(context)},
+                              onPressed: () {
+                                Navigator.pop(context);
+                                passwordController.text = '';
+                              },
                               child: const Text("Cancel")),
                           ElevatedButton(
                               style: ButtonStyle(
@@ -312,10 +316,6 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
   }
 
   // initialize accessPoints and subscription
-  List<WiFiAccessPoint> accessPoints = [];
-  StreamSubscription<List<WiFiAccessPoint>>? subscription;
-  bool loading = false;
-  String _errText = '';
   void _startListeningToScannedResults() async {
     // check platform support and necessary requirements
     if (accessPoints.isEmpty) {
@@ -410,10 +410,13 @@ class _MyHomePageState extends State<MyHomePage> with WidgetsBindingObserver {
 
   connectToWiFi() async {
     bool connected1 = await WiFiForIoTPlugin.connect(selectedSSID,
-        password: password, security: NetworkSecurity.WPA, withInternet: true);
+        password: passwordController.text.trim(),
+        security: NetworkSecurity.WPA,
+        withInternet: true);
     if (connected1) {
       if (!mounted) return;
       Navigator.pop(context);
+      passwordController.text = '';
       await getConnectedSSID();
       setState(() {
         connected = true;
